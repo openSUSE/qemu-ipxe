@@ -1049,7 +1049,7 @@ static int efi_snp_probe ( struct net_device *netdev ) {
 	macpath->Header.SubType = MSG_MAC_ADDR_DP;
 	macpath->Header.Length[0] = sizeof ( *macpath );
 	memcpy ( &macpath->MacAddress, netdev->ll_addr,
-		 sizeof ( macpath->MacAddress ) );
+		 netdev->ll_protocol->ll_addr_len );
 	macpath->IfType = ntohs ( netdev->ll_protocol->ll_proto );
 	memset ( path_end, 0, sizeof ( *path_end ) );
 	path_end->Type = END_DEVICE_PATH_TYPE;
