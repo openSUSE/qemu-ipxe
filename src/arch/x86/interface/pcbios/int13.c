@@ -23,6 +23,8 @@
 
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
+#define INCLUDE_SAN_HOOKS 0
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -1243,6 +1245,7 @@ static void int13_unhook_vector ( void ) {
  */
 static int int13_hook ( unsigned int drive, struct uri **uris,
 			unsigned int count, unsigned int flags ) {
+#if INCLUDE_SAN_HOOKS
 	struct san_device *sandev;
 	struct int13_data *int13;
 	unsigned int natural_drive;
@@ -1315,6 +1318,9 @@ static int int13_hook ( unsigned int drive, struct uri **uris,
 	sandev_put ( sandev );
  err_alloc:
 	return rc;
+#else
+	return -1;
+#endif
 }
 
 /**
@@ -1328,6 +1334,7 @@ static int int13_hook ( unsigned int drive, struct uri **uris,
  */
 static void int13_unhook ( unsigned int drive ) {
 	struct san_device *sandev;
+#if INCLUDE_SAN_HOOKS
 
 	/* Find drive */
 	sandev = sandev_find ( drive );
@@ -1353,6 +1360,7 @@ static void int13_unhook ( unsigned int drive ) {
 
 	/* Drop reference to drive */
 	sandev_put ( sandev );
+#endif
 }
 
 /**
@@ -1514,6 +1522,7 @@ static int int13_load_eltorito ( unsigned int drive, struct segoff *address ) {
  * Note that this function can never return success, by definition.
  */
 static int int13_boot ( unsigned int drive, const char *filename __unused ) {
+#if INCLUDE_SAN_HOOKS
 	struct memory_map memmap;
 	struct segoff address;
 	int rc;
@@ -1539,6 +1548,9 @@ static int int13_boot ( unsigned int drive, const char *filename __unused ) {
 	}
 
 	return -ECANCELED; /* -EIMPOSSIBLE */
+#else
+	return -1;
+#endif
 }
 
 /** Maximum size of boot firmware table(s) */
@@ -1605,6 +1617,7 @@ static int int13_install ( struct acpi_header *acpi ) {
  * @ret rc		Return status code
  */
 static int int13_describe ( void ) {
+#if INCLUDE_SAN_HOOKS
 	int rc;
 
 	/* Clear tables */
@@ -1619,6 +1632,9 @@ static int int13_describe ( void ) {
 	}
 
 	return 0;
+#else
+	return -1;
+#endif
 }
 
 PROVIDE_SANBOOT ( pcbios, san_hook, int13_hook );
