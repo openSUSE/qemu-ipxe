@@ -491,7 +491,13 @@ static struct pe_section * process_section ( struct elf_file *elf,
 	memset ( new, 0, sizeof ( *new ) + section_filesz );
 
 	/* Fill in section header details */
+/* gcc 8 warning gives false positive here - our usage is correct */
+#pragma GCC diagnostic push
+#if __GNUC__ >= 8
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+#endif
 	strncpy ( ( char * ) new->hdr.Name, name, sizeof ( new->hdr.Name ) );
+#pragma GCC diagnostic pop
 	new->hdr.Misc.VirtualSize = section_memsz;
 	new->hdr.VirtualAddress = shdr->sh_addr;
 	new->hdr.SizeOfRawData = section_filesz;
