@@ -179,6 +179,19 @@ WNA_FLAGS := $(shell $(WNA_TEST) && $(ECHO) '-Wno-address')
 WORKAROUND_CFLAGS += $(WNA_FLAGS)
 endif
 
+# GCC 9.0 introduces a new warning for using pointers to packed
+# structure and union members. ipxe code is replete with this usage,
+# partly because the architectures it is designed for handle unaligned
+# accesses. Therefore this warning is not very helpful and since the 
+# default build considers warnings to be errors, needs to be disabled.
+#
+ifeq ($(CCTYPE),gcc)
+WNAOPM_TEST = $(CC) -Waddress-of-packed-member -x c -c /dev/null -o /dev/null \
+		  >/dev/null 2>&1
+WNAOPM_FLAGS := $(shell $(WNAOPM_TEST) && $(ECHO) '-Wno-address-of-packed-member')
+WORKAROUND_CFLAGS += $(WNAOPM_FLAGS)
+endif
+
 # Some versions of gas choke on division operators, treating them as
 # comment markers.  Specifying --divide will work around this problem,
 # but isn't available on older gas versions.
