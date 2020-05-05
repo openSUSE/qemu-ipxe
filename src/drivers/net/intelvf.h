@@ -132,7 +132,7 @@ union intelvf_msg {
 	/** Queue configuration message */
 	struct intelvf_msg_queues queues;
 	/** Raw dwords */
-	uint32_t dword[0];
+	uint32_t dword[1];
 };
 
 /** Maximum time to wait for mailbox message
