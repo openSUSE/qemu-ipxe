@@ -208,6 +208,7 @@ real_to_prot:
 	movl	%eax, %cr0
 	data32 ljmp	$VIRTUAL_CS, $1f
 	.section ".text", "ax", @progbits
+    .align 4
 	.code32
 1:
 	/* Set up protected-mode data segments and stack pointer */
@@ -541,6 +542,7 @@ rc_function:	.word 0, 0
  ****************************************************************************
  */
 	.section ".data", "aw", @progbits
+    .align 4
 	.globl rm_sp
 rm_sp:	.word 0
 	.globl rm_ss
