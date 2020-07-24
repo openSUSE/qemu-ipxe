@@ -160,7 +160,7 @@ relocatable_kernel:
 pad2:
 	.byte	0, 0, 0
 cmdline_size:
-	.long	0
+	.long	0x7ff
 hardware_subarch:
 	.long	0
 hardware_subarch_data:
@@ -188,16 +188,61 @@ setup_code:
 	We're now at the beginning of the kernel proper.
  */
 run_ipxe:
-	/* Set up stack just below 0x7c00 */
+	/* Set up stack just below 0x7c00 and clear direction flag */
 	xorw	%ax, %ax
 	movw	%ax, %ss
 	movw	$0x7c00, %sp
+	cld
 
 	/* Retrieve command-line pointer */
-	movl	%es:cmd_line_ptr, %edx
+	movl	%ds:cmd_line_ptr, %edx
+	testl	%edx, %edx
+	jz	no_cmd_line
+
+	/* Set up %es:%di to point to command line */
+	movl	%edx, %edi
+	andl	$0xf, %edi
+	rorl	$4, %edx
+	movw	%dx, %es
+
+	/* Find length of command line */
+	pushw	%di
+	movw	$0xffff, %cx
+	repnz scasb
+	notw	%cx
+	popw	%si
+
+	/* Make space for command line on stack */
+	movw	%sp, %di
+	subw	%cx, %di
+	andw	$~0xf, %di
+	movw	%di, %sp
+
+	/* Copy command line to stack */
+	pushw	%ds
+	pushw	%es
+	popw	%ds
+	pushw	%ss
+	popw	%es
+	rep movsb
+	popw	%ds
+
+	/* Store new command-line pointer */
+	movzwl	%sp, %edx
+no_cmd_line:
+
+	/* Calculate maximum relocation address */
+	movl	ramdisk_image, %ebp
+	testl	%ebp, %ebp
+	jnz	1f
+	orl	$0xffffffff, %ebp /* Allow arbitrary relocation if no initrd */
+1:
 
 	/* Install iPXE */
-	call	install
+	call	alloc_basemem
+	xorl	%esi, %esi
+	xorl	%edi, %edi
+	call	install_prealloc
 
 	/* Set up real-mode stack */
 	movw	%bx, %ss
@@ -209,11 +254,19 @@ run_ipxe:
 	lret
 	.section ".text16", "awx", @progbits
 1:
+	/* Retrieve initrd pointer and size */
+	movl	ramdisk_image, %ebp
+	movl	ramdisk_size, %ecx
+
 	/* Set up %ds for access to .data16 */
 	movw	%bx, %ds
 
 	/* Store command-line pointer */
 	movl	%edx, cmdline_phys
+
+	/* Store initrd pointer and size */
+	movl	%ebp, initrd_phys
+	movl	%ecx, initrd_len
 
 	/* Run iPXE */
 	pushl	$main

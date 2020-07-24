@@ -13,7 +13,8 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301, USA.
  */
 
 FILE_LICENCE ( GPL2_OR_LATER );
@@ -29,11 +30,18 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #include <ipxe/uri.h>
 #include <ipxe/open.h>
 #include <ipxe/init.h>
+#include <ipxe/keys.h>
+#include <ipxe/version.h>
+#include <ipxe/shell.h>
+#include <ipxe/features.h>
+#include <ipxe/image.h>
 #include <usr/ifmgmt.h>
 #include <usr/route.h>
 #include <usr/dhcpmgmt.h>
 #include <usr/imgmgmt.h>
+#include <usr/prompt.h>
 #include <usr/autoboot.h>
+#include <config/general.h>
 
 /** @file
  *
@@ -45,6 +53,18 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #define ENOENT_BOOT __einfo_error ( EINFO_ENOENT_BOOT )
 #define EINFO_ENOENT_BOOT \
 	__einfo_uniqify ( EINFO_ENOENT, 0x01, "Nothing to boot" )
+
+#define NORMAL	"\033[0m"
+#define BOLD	"\033[1m"
+#define CYAN	"\033[36m"
+
+/** The "scriptlet" setting */
+struct setting scriptlet_setting __setting ( SETTING_MISC ) = {
+	.name = "scriptlet",
+	.description = "Boot scriptlet",
+	.tag = DHCP_EB_SCRIPTLET,
+	.type = &setting_type_string,
+};
 
 /**
  * Perform PXE menu boot when PXE stack is not available
@@ -119,54 +139,38 @@ struct setting skip_san_boot_setting __setting ( SETTING_SANBOOT_EXTRA ) = {
  *
  * @v filename		Filename
  * @v root_path		Root path
+ * @v drive		SAN drive (if applicable)
+ * @v flags		Boot action flags
  * @ret rc		Return status code
+ *
+ * The somewhat tortuous flow of control in this function exists in
+ * order to ensure that the "sanboot" command remains identical in
+ * function to a SAN boot via a DHCP-specified root path, and to
+ * provide backwards compatibility for the "keep-san" and
+ * "skip-san-boot" options.
  */
-int uriboot ( struct uri *filename, struct uri *root_path ) {
-	int drive;
+int uriboot ( struct uri *filename, struct uri *root_path, int drive,
+	      unsigned int flags ) {
+	struct image *image;
 	int rc;
-
-	/* Treat empty URIs as absent */
-	if ( filename && ( ! uri_has_path ( filename ) ) )
-		filename = NULL;
-	if ( root_path && ( ! uri_is_absolute ( root_path ) ) )
-		root_path = NULL;
-
-	/* If we have both a filename and a root path, ignore an
-	 * unsupported URI scheme in the root path, since it may
-	 * represent an NFS root.
-	 */
-	if ( filename && root_path &&
-	     ( xfer_uri_opener ( root_path->scheme ) == NULL ) ) {
-		printf ( "Ignoring unsupported root path\n" );
-		root_path = NULL;
-	}
-
-	/* Check that we have something to boot */
-	if ( ! ( filename || root_path ) ) {
-		rc = -ENOENT_BOOT;
-		printf ( "Nothing to boot: %s\n", strerror ( rc ) );
-		goto err_no_boot;
-	}
 
 	/* Hook SAN device, if applicable */
 	if ( root_path ) {
-		drive = san_hook ( root_path, 0 );
-		if ( drive < 0 ) {
-			rc = drive;
+		if ( ( rc = san_hook ( root_path, drive ) ) != 0 ) {
 			printf ( "Could not open SAN device: %s\n",
 				 strerror ( rc ) );
 			goto err_san_hook;
 		}
-		printf ( "Registered as SAN device %#02x\n", drive );
-	} else {
-		drive = -ENODEV;
+		printf ( "Registered SAN device %#02x\n", drive );
 	}
 
 	/* Describe SAN device, if applicable */
-	if ( ( drive >= 0 ) && ( ( rc = san_describe ( drive ) ) != 0 ) ) {
-		printf ( "Could not describe SAN device %#02x: %s\n",
-			 drive, strerror ( rc ) );
-		goto err_san_describe;
+	if ( ( drive >= 0 ) && ! ( flags & URIBOOT_NO_SAN_DESCRIBE ) ) {
+		if ( ( rc = san_describe ( drive ) ) != 0 ) {
+			printf ( "Could not describe SAN device %#02x: %s\n",
+				 drive, strerror ( rc ) );
+			goto err_san_describe;
+		}
 	}
 
 	/* Allow a root-path-only boot with skip-san enabled to succeed */
@@ -174,9 +178,11 @@ int uriboot ( struct uri *filename, struct uri *root_path ) {
 
 	/* Attempt filename boot if applicable */
 	if ( filename ) {
-		if ( ( rc = imgdownload ( filename, NULL, NULL,
-					  register_and_boot_image ) ) != 0 ) {
-			printf ( "\nCould not chain image: %s\n",
+		if ( ( rc = imgdownload ( filename, &image ) ) != 0 )
+			goto err_download;
+		image->flags |= IMAGE_AUTO_UNREGISTER;
+		if ( ( rc = image_exec ( image ) ) != 0 ) {
+			printf ( "Could not boot image: %s\n",
 				 strerror ( rc ) );
 			/* Fall through to (possibly) attempt a SAN boot
 			 * as a fallback.  If no SAN boot is attempted,
@@ -192,7 +198,7 @@ int uriboot ( struct uri *filename, struct uri *root_path ) {
 	}
 
 	/* Attempt SAN boot if applicable */
-	if ( root_path ) {
+	if ( ( drive >= 0 ) && ! ( flags & URIBOOT_NO_SAN_BOOT ) ) {
 		if ( fetch_intz_setting ( NULL, &skip_san_boot_setting) == 0 ) {
 			printf ( "Booting from SAN device %#02x\n", drive );
 			rc = san_boot ( drive );
@@ -207,19 +213,18 @@ int uriboot ( struct uri *filename, struct uri *root_path ) {
 		}
 	}
 
+ err_download:
  err_san_describe:
 	/* Unhook SAN device, if applicable */
-	if ( drive >= 0 ) {
+	if ( ( drive >= 0 ) && ! ( flags & URIBOOT_NO_SAN_UNHOOK ) ) {
 		if ( fetch_intz_setting ( NULL, &keep_san_setting ) == 0 ) {
-			printf ( "Unregistering SAN device %#02x\n", drive );
 			san_unhook ( drive );
+			printf ( "Unregistered SAN device %#02x\n", drive );
 		} else {
-			printf ( "Preserving connection to SAN device %#02x\n",
-				 drive );
+			printf ( "Preserving SAN device %#02x\n", drive );
 		}
 	}
  err_san_hook:
- err_no_boot:
 	return rc;
 }
 
@@ -360,19 +365,51 @@ int netboot ( struct net_device *netdev ) {
 		goto err_pxe_menu_boot;
 	}
 
-	/* Fetch next server, filename and root path */
+	/* Fetch next server and filename */
 	filename = fetch_next_server_and_filename ( NULL );
 	if ( ! filename )
 		goto err_filename;
+	if ( ! uri_has_path ( filename ) ) {
+		/* Ignore empty filename */
+		uri_put ( filename );
+		filename = NULL;
+	}
+
+	/* Fetch root path */
 	root_path = fetch_root_path ( NULL );
 	if ( ! root_path )
 		goto err_root_path;
+	if ( ! uri_is_absolute ( root_path ) ) {
+		/* Ignore empty root path */
+		uri_put ( root_path );
+		root_path = NULL;
+	}
+
+	/* If we have both a filename and a root path, ignore an
+	 * unsupported URI scheme in the root path, since it may
+	 * represent an NFS root.
+	 */
+	if ( filename && root_path &&
+	     ( xfer_uri_opener ( root_path->scheme ) == NULL ) ) {
+		printf ( "Ignoring unsupported root path\n" );
+		uri_put ( root_path );
+		root_path = NULL;
+	}
+
+	/* Check that we have something to boot */
+	if ( ! ( filename || root_path ) ) {
+		rc = -ENOENT_BOOT;
+		printf ( "Nothing to boot: %s\n", strerror ( rc ) );
+		goto err_no_boot;
+	}
 
 	/* Boot using next server, filename and root path */
-	if ( ( rc = uriboot ( filename, root_path ) ) != 0 )
+	if ( ( rc = uriboot ( filename, root_path, san_default_drive(),
+			      ( root_path ? 0 : URIBOOT_NO_SAN ) ) ) != 0 )
 		goto err_uriboot;
 
  err_uriboot:
+ err_no_boot:
 	uri_put ( root_path );
  err_root_path:
 	uri_put ( filename );
@@ -404,4 +441,80 @@ int autoboot ( void ) {
 
 	printf ( "No more network devices\n" );
 	return rc;
+}
+
+/**
+ * Prompt for shell entry
+ *
+ * @ret	enter_shell	User wants to enter shell
+ */
+static int shell_banner ( void ) {
+
+	/* Skip prompt if timeout is zero */
+	if ( BANNER_TIMEOUT <= 0 )
+		return 0;
+
+	/* Prompt user */
+	printf ( "\n" );
+	return ( prompt ( "Press Ctrl-B for the iPXE command line...",
+			  ( BANNER_TIMEOUT * 100 ), CTRL_B ) == 0 );
+}
+
+/**
+ * Main iPXE flow of execution
+ *
+ * @v netdev		Network device, or NULL
+ */
+void ipxe ( struct net_device *netdev ) {
+	struct feature *feature;
+	struct image *image;
+	char *scriptlet;
+
+	/*
+	 * Print welcome banner
+	 *
+	 *
+	 * If you wish to brand this build of iPXE, please do so by
+	 * defining the string PRODUCT_NAME in config/general.h.
+	 *
+	 * While nothing in the GPL prevents you from removing all
+	 * references to iPXE or http://ipxe.org, we prefer you not to
+	 * do so.
+	 *
+	 */
+	printf ( NORMAL "\n\n" PRODUCT_NAME "\n" BOLD "iPXE %s"
+		 NORMAL " -- Open Source Network Boot Firmware -- "
+		 CYAN "http://ipxe.org" NORMAL "\n"
+		 "Features:", product_version );
+	for_each_table_entry ( feature, FEATURES )
+		printf ( " %s", feature->name );
+	printf ( "\n" );
+
+	/* Boot system */
+	if ( ( image = first_image() ) != NULL ) {
+		/* We have an embedded image; execute it */
+		image_exec ( image );
+	} else if ( shell_banner() ) {
+		/* User wants shell; just give them a shell */
+		shell();
+	} else {
+		fetch_string_setting_copy ( NULL, &scriptlet_setting,
+					    &scriptlet );
+		if ( scriptlet ) {
+			/* User has defined a scriptlet; execute it */
+			system ( scriptlet );
+			free ( scriptlet );
+		} else {
+			/* Try booting.  If booting fails, offer the
+			 * user another chance to enter the shell.
+			 */
+			if ( netdev ) {
+				netboot ( netdev );
+			} else {
+				autoboot();
+			}
+			if ( shell_banner() )
+				shell();
+		}
+	}
 }
