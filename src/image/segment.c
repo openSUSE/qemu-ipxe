@@ -40,7 +40,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
  */
 #define ERANGE_SEGMENT __einfo_error ( EINFO_ERANGE_SEGMENT )
 #define EINFO_ERANGE_SEGMENT \
-	__einfo_uniqify ( EINFO_ERANGE, 0x01, "Requested memory not available" )
+	__einfo_uniqify ( EINFO_ERANGE, 0x01, "ENOMEM" )
 struct errortab segment_errors[] __errortab = {
 	__einfo_errortab ( EINFO_ERANGE_SEGMENT ),
 };

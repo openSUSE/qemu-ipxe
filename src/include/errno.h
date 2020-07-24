@@ -355,7 +355,7 @@ static inline void euniq_discard ( int dummy __unused, ... ) {}
 /** Operation completed successfully */
 #define ENOERR __einfo_error ( EINFO_ENOERR )
 #define EINFO_ENOERR __einfo ( PXENV_STATUS_SUCCESS, 0x00, 0, \
-			       "Operation completed successfully" )
+			       "EOK" )
 
 /** Argument list too long */
 #define E2BIG __einfo_error ( EINFO_E2BIG )
