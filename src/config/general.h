@@ -31,7 +31,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
  * Timer configuration
  *
  */
-#define BANNER_TIMEOUT	20	/* Tenths of a second for which the shell
+#define BANNER_TIMEOUT	0	/* Tenths of a second for which the shell
 				   banner should appear */
 
 /*
@@ -92,7 +92,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
  * you want to use.
  *
  */
-//#define	IMAGE_NBI		/* NBI image support */
+#define	IMAGE_NBI		/* NBI image support */
 //#define	IMAGE_ELF		/* ELF image support */
 //#define	IMAGE_MULTIBOOT		/* MultiBoot image support */
 //#define	IMAGE_PXE		/* PXE image support */
