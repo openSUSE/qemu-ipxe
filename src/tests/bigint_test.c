@@ -210,7 +210,7 @@ void bigint_mod_exp_sample ( const bigint_element_t *base0,
 	static const uint8_t addend_raw[] = addend;			\
 	static const uint8_t value_raw[] = value;			\
 	static const uint8_t expected_raw[] = expected;			\
-	uint8_t result_raw[ sizeof ( expected_raw ) ];			\
+	uint8_t result_raw[ sizeof ( expected_raw ) ] = {0};		\
 	unsigned int size =						\
 		bigint_required_size ( sizeof ( value_raw ) );		\
 	bigint_t ( size ) addend_temp;					\
